@@ -6,4 +6,4 @@ BFS:
 
 Boids:
 
-![screenshotBoids](./images/Avoidance_V2.gif)
+![screenshotBoids](./images/Avoidance V2.gif)
