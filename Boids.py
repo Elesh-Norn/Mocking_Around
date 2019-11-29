@@ -18,15 +18,17 @@ import math
 # --- Constants ---
 SPRITE_SCALING_PLAYER = 0.5
 SPRITE_SCALING_BOID = 0.2
-BOID_COUNT = 30
-MAX_SPEED = 3
+
+BOID_COUNT = 20
+MAX_SPEED = 30
 MAX_VIEW = 20
+MAX_AVOID_FORCE = 10
+ATTRACTION_RADIUS = 50
+ATTRACTION_FORCE = 8
 
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
-SCREEN_TITLE = "Boides"
-
-SPRITE_SPEED = 0.5
+SCREEN_WIDTH = 600
+SCREEN_HEIGHT = 400
+SCREEN_TITLE = "Boids"
 
 
 class Boid(arcade.Sprite):
@@ -36,17 +38,18 @@ class Boid(arcade.Sprite):
     """
 
     def __init__(self, image_path, scaling,
-                 pos: list, vel: list,
-                 acc: float, view_radius=50):
+                 pos: list, vel: list):
 
         super().__init__(image_path, scaling)
         self.pos = pos
         self.vel = vel
-        self.acc = acc
+        self.acc = [0, 0]
+        self.ahead = [0, 0]
         # Not used yet
-        self.view_radius = view_radius
+        self.view_radius = 1
 
     def update(self):
+
         # Update the position
         self.pos[0] += self.vel[0]
         self.pos[1] += self.vel[1]
@@ -55,46 +58,61 @@ class Boid(arcade.Sprite):
         self.pos[0] = self.pos[0] % SCREEN_HEIGHT
         self.pos[1] = self.pos[1] % SCREEN_WIDTH
 
-        # Trying to normalize speed
-        maxi = max(self.vel)
-        if maxi > 0 or maxi < 0:
-            self.vel[0] = self.vel[0] / maxi * MAX_SPEED
-            self.vel[1] = self.vel[1] / maxi * MAX_SPEED
+        # Accelerate
+        self.vel[0] += self.acc[0]
+        self.vel[1] += self.acc[1]
 
         # Actually modify the sprite position
         self.center_x = self.pos[1]
         self.center_y = self.pos[0]
 
-    def avoidance(self, player_sprite: arcade.Sprite):
-        # For now, avoid the player sprite
+        self.ahead = [(self.pos[0] + self.vel[0] * MAX_VIEW) % SCREEN_HEIGHT,
+                      (self.pos[1] + self.vel[1] * MAX_VIEW) % SCREEN_WIDTH]
 
-        player_pos = [player_sprite.center_y, player_sprite.center_x]
+        magnitude = self.magnitude(self.pos, self.velocity)
+        if magnitude > MAX_SPEED or magnitude <1:
+            self.vel = self.normalise(self.vel, magnitude)
+            self.vel[0] *= MAX_SPEED
+            self.vel[1] *= MAX_SPEED
+
+    def avoidance(self, sprite: arcade.Sprite):
+        # For now, avoid the player sprite
+        sprite_pos = [sprite.center_y, sprite.center_x]
 
         # Look in front
-        ahead = [self.pos[0] + self.vel[0] * MAX_VIEW,
-                 self.pos[1] + self.vel[1] * MAX_VIEW]
-        ahead2 = [ahead[0] * 0.5, ahead[0] * 0.5]
-        ahead_dist = self.euclidian_distance(ahead, player_pos)
-        ahead2_dist = self.euclidian_distance(ahead2, player_pos)
+        ahead2 = [self.ahead[0] * 0.5, self.ahead[0] * 0.5]
+        ahead_dist = self.euclidian_distance(self.ahead, sprite_pos)
+        ahead2_dist = self.euclidian_distance(ahead2, sprite_pos)
 
         # Collision with player_sprite (width might not be the best)
-        if ahead_dist < player_sprite.width or ahead2_dist < player_sprite.width:
+        if ahead_dist < sprite.collision_radius or ahead2_dist < sprite.collision_radius:
             # Calculate the avoidance force
-            avoid_force = [ahead[0] - player_sprite.center_y,
-                           ahead[1] - player_sprite.center_x]
+            avoid_force = [self.ahead[0] - sprite.center_y,
+                           self.ahead[1] - sprite.center_x]
+            return avoid_force
 
-            # Trying to normalise
-            maxi = max(avoid_force)  # What if negative ?
-            if maxi > 0 or maxi < 0:  # Avoid the 0 division
-                avoid_force[0] = avoid_force[0]/maxi * 2
-                avoid_force[1] = avoid_force[1] / maxi * 2
-                return avoid_force
-            else:
-                return [0, 0]
+        return [0, 0]
+
+    def attraction(self, sprite: arcade.Sprite)->list:
+        # Ahead of the other would be better?
+
+        ahead_dist = self.euclidian_distance(self.pos, [sprite.center_y, sprite.center_x])
+        if ahead_dist <= ATTRACTION_RADIUS:
+            self.view_radius += 1
+            return sprite.vel
+
         return [0, 0]
 
     def euclidian_distance(self, pos1: list, pos2: list)->float:
         return math.sqrt((pos1[0] - pos2[0])**2 + (pos1[1] - pos2[1])**2)
+
+    def magnitude(self, pos1: list, pos2: list)->float:
+        return math.sqrt(abs(pos1[1]*pos1[0]+pos2[1]*pos2[0]))
+
+    def normalise(self, pos, magnitude: float)->list:
+        if magnitude > 0:
+            return [pos[0]/magnitude, pos[1]/magnitude]
+        return self.vel
 
 
 class MyGame(arcade.Window):
@@ -114,7 +132,7 @@ class MyGame(arcade.Window):
         # Don't show the mouse cursor
         self.set_mouse_visible(False)
 
-        arcade.set_background_color(arcade.color.DEEP_SKY_BLUE)
+        arcade.set_background_color(arcade.color.BLUEBERRY)
 
     def setup(self):
         """ Set up the game and initialize the variables. """
@@ -134,16 +152,15 @@ class MyGame(arcade.Window):
         for i in range(BOID_COUNT):
 
             random_pos = [random.randrange(SCREEN_WIDTH), random.randrange(SCREEN_HEIGHT)]
-            random_vel = [random.randrange(-10, 10)/10, random.randrange(-10, 10)/10]
+            random_vel = [random.randrange(-10, 10), random.randrange(-10, 10)]
             boid = Boid("images/coin_01.png", SPRITE_SCALING_BOID, random_pos,
-                        random_vel, 0.1)
+                        random_vel)
             self.boid_list.append(boid)
 
     def on_draw(self):
         """ Draw everything """
         arcade.start_render()
         self.boid_list.draw()
-        self.player_list.draw()
 
     def on_mouse_motion(self, x, y, dx, dy):
         """ Handle Mouse Motion """
@@ -155,14 +172,37 @@ class MyGame(arcade.Window):
     def on_update(self, delta_time):
         """ Movement and game logic """
 
-        for coin in self.boid_list:
-            avoid = coin.steering_vel(self.player_sprite)
-            if avoid[0] == 0 and avoid[1] == 0:
-                coin.vel[0] *= 0.7
-                coin.vel[1] *= 0.7
-            coin.vel[0] += avoid[0]
-            coin.vel[1] += avoid[1]
-            coin.update()
+        for boid in self.boid_list:
+
+            avoid_total = [0, 0]
+            attraction_total = [0, 0]
+            boid.view_radius = 1
+
+            for boid2 in self.boid_list:
+                if boid2 is not boid:
+                    # Compute 1 avoid
+                    avoid_force = boid.avoidance(boid2)
+                    avoid_total[0] += avoid_force[0]
+                    avoid_total[1] += avoid_force[1]
+                    # Compute 1 attraction
+                    attraction_force = boid.attraction(boid2)
+                    attraction_total[0] += attraction_force[0]
+                    attraction_total[1] += attraction_force[1]
+
+            attraction_total[0] = ((attraction_total[0] / boid.view_radius))* MAX_SPEED
+            attraction_total[1] = ((attraction_total[1] / boid.view_radius)) * MAX_SPEED
+            # Normalising
+            magnitude = boid.magnitude(boid.vel, avoid_total)
+            avoid = boid.normalise(avoid_total, magnitude)
+            magnitude = boid.magnitude(boid.vel, attraction_total)
+            attraction = boid.normalise(attraction_total, magnitude)
+
+            # Adding Forces
+            boid.acc[0] = attraction[0] * ATTRACTION_FORCE \
+                           + avoid[0] * MAX_AVOID_FORCE
+            boid.acc[1] = attraction[1] * ATTRACTION_FORCE \
+                           + avoid[1] * MAX_AVOID_FORCE
+            boid.update()
 
 
 def main():
