@@ -1,16 +1,3 @@
-"""
-Sprite Follow Player 2
-
-This calculates a 'vector' towards the player and randomly updates it based
-on the player's location. This is a bit more complex, but more interesting
-way of following the player.
-
-Artwork from http://kenney.nl
-
-If Python and Arcade are installed, this example can be run from the command line with:
-python -m arcade.examples.sprite_follow_simple_2
-"""
-
 import random
 import arcade
 import math
@@ -20,11 +7,14 @@ SPRITE_SCALING_PLAYER = 0.5
 SPRITE_SCALING_BOID = 0.2
 
 BOID_COUNT = 20
-MAX_SPEED = 30
-MAX_VIEW = 20
+MAX_SPEED = 15
+
+MAX_VIEW = 10
 MAX_AVOID_FORCE = 10
-ATTRACTION_RADIUS = 50
-ATTRACTION_FORCE = 8
+
+ATTRACTION_RADIUS = 60
+ATTRACTION_FORCE = 10
+ALIGNEMENT_RADIUS = 60
 
 SCREEN_WIDTH = 600
 SCREEN_HEIGHT = 400
@@ -93,18 +83,34 @@ class Boid(arcade.Sprite):
 
         return [0, 0]
 
-    def attraction(self, sprite: arcade.Sprite)->list:
-        # Ahead of the other would be better?
+    def alignement(self, sprite: arcade.Sprite)->list:
 
-        ahead_dist = self.euclidian_distance(self.pos, [sprite.center_y, sprite.center_x])
+        ahead_dist = self.toroidal_distance(self.pos, [sprite.center_y, sprite.center_x])
         if ahead_dist <= ATTRACTION_RADIUS:
             self.view_radius += 1
             return sprite.vel
 
         return [0, 0]
 
+    def attraction(self, sprite: arcade.Sprite)->list:
+        if self.toroidal_distance(self.pos, sprite.pos) <= ATTRACTION_RADIUS:
+            return sprite.pos
+        return [0, 0]
+
     def euclidian_distance(self, pos1: list, pos2: list)->float:
         return math.sqrt((pos1[0] - pos2[0])**2 + (pos1[1] - pos2[1])**2)
+
+    def toroidal_distance(self, pos1: list, pos2: list)->float:
+        diff_x = abs(pos1[1] - pos2[1])
+        diff_y = abs(pos1[0] - pos2[0])
+
+        if diff_x > 0.5:
+            diff_x = 1.0 - diff_x
+
+        if diff_y > 0.5:
+            diff_y = 1.0 - diff_y
+
+        return math.sqrt(diff_x**2 + diff_y**2)
 
     def magnitude(self, pos1: list, pos2: list)->float:
         return math.sqrt(abs(pos1[1]*pos1[0]+pos2[1]*pos2[0]))
@@ -123,11 +129,7 @@ class MyGame(arcade.Window):
         # Call the parent class initializer
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
 
-        self.player_list = None
         self.boid_list = None
-
-        # Set up the player info
-        self.player_sprite = None
 
         # Don't show the mouse cursor
         self.set_mouse_visible(False)
@@ -138,22 +140,16 @@ class MyGame(arcade.Window):
         """ Set up the game and initialize the variables. """
 
         # Sprite lists
-        self.player_list = arcade.SpriteList()
+
         self.boid_list = arcade.SpriteList()
 
-        # Set up the player
-
-        self.player_sprite = arcade.Sprite("images/character.png", SPRITE_SCALING_PLAYER)
-        self.player_sprite.center_x = 50
-        self.player_sprite.center_y = 50
-        self.player_list.append(self.player_sprite)
 
         # Create the boids
         for i in range(BOID_COUNT):
 
             random_pos = [random.randrange(SCREEN_WIDTH), random.randrange(SCREEN_HEIGHT)]
             random_vel = [random.randrange(-10, 10), random.randrange(-10, 10)]
-            boid = Boid("images/coin_01.png", SPRITE_SCALING_BOID, random_pos,
+            boid = Boid("images/char2.png", SPRITE_SCALING_BOID, random_pos,
                         random_vel)
             self.boid_list.append(boid)
 
@@ -166,8 +162,7 @@ class MyGame(arcade.Window):
         """ Handle Mouse Motion """
 
         # Move the center of the player sprite to match the mouse x, y
-        self.player_sprite.center_x = x
-        self.player_sprite.center_y = y
+        pass
 
     def on_update(self, delta_time):
         """ Movement and game logic """
@@ -176,32 +171,47 @@ class MyGame(arcade.Window):
 
             avoid_total = [0, 0]
             attraction_total = [0, 0]
+            alignement_total = [0, 0]
             boid.view_radius = 1
 
             for boid2 in self.boid_list:
                 if boid2 is not boid:
+
                     # Compute 1 avoid
                     avoid_force = boid.avoidance(boid2)
                     avoid_total[0] += avoid_force[0]
                     avoid_total[1] += avoid_force[1]
+
                     # Compute 1 attraction
                     attraction_force = boid.attraction(boid2)
                     attraction_total[0] += attraction_force[0]
                     attraction_total[1] += attraction_force[1]
 
-            attraction_total[0] = ((attraction_total[0] / boid.view_radius))* MAX_SPEED
-            attraction_total[1] = ((attraction_total[1] / boid.view_radius)) * MAX_SPEED
+                    # Compute 1 alignment
+                    alignement_force = boid.attraction(boid2)
+                    alignement_total[0] += alignement_force[0]
+                    alignement_total[1] += alignement_force[1]
+
+            alignement_total[0] = attraction_total[0] / boid.view_radius * MAX_SPEED
+            alignement_total[1] = attraction_total[1] / boid.view_radius * MAX_SPEED
+
             # Normalising
             magnitude = boid.magnitude(boid.vel, avoid_total)
             avoid = boid.normalise(avoid_total, magnitude)
+
+            magnitude = boid.magnitude(boid.vel, alignement_total)
+            alignement = boid.normalise(alignement_total, magnitude)
+
             magnitude = boid.magnitude(boid.vel, attraction_total)
             attraction = boid.normalise(attraction_total, magnitude)
 
             # Adding Forces
             boid.acc[0] = attraction[0] * ATTRACTION_FORCE \
-                           + avoid[0] * MAX_AVOID_FORCE
+                          + avoid[0] * MAX_AVOID_FORCE \
+                          + alignement[0]
             boid.acc[1] = attraction[1] * ATTRACTION_FORCE \
-                           + avoid[1] * MAX_AVOID_FORCE
+                          + avoid[1] * MAX_AVOID_FORCE \
+                          + alignement[0]
             boid.update()
 
 
