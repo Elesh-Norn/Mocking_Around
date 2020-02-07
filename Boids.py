@@ -7,7 +7,7 @@ SPRITE_SCALING_PLAYER = 0.5
 SPRITE_SCALING_BOID = 0.2
 
 BOID_COUNT = 20
-MAX_SPEED = 15
+MAX_SPEED = 40
 
 MAX_VIEW = 10
 MAX_AVOID_FORCE = 10
@@ -33,10 +33,10 @@ class Boid(arcade.Sprite):
         super().__init__(image_path, scaling)
         self.pos = pos
         self.vel = vel
-        self.acc = [0, 0]
+        self.acc = [1, 1]
         self.ahead = [0, 0]
         # Not used yet
-        self.view_radius = 1
+        self.view_radius = 5
 
     def update(self):
 
@@ -59,23 +59,22 @@ class Boid(arcade.Sprite):
         self.ahead = [(self.pos[0] + self.vel[0] * MAX_VIEW) % SCREEN_HEIGHT,
                       (self.pos[1] + self.vel[1] * MAX_VIEW) % SCREEN_WIDTH]
 
-        magnitude = self.magnitude(self.pos, self.velocity)
-        if magnitude > MAX_SPEED or magnitude <1:
+        magnitude = self.magnitude(self.pos, self.vel)
+        if magnitude > MAX_SPEED or magnitude < 1:
             self.vel = self.normalise(self.vel, magnitude)
             self.vel[0] *= MAX_SPEED
             self.vel[1] *= MAX_SPEED
 
     def avoidance(self, sprite: arcade.Sprite):
-        # For now, avoid the player sprite
         sprite_pos = [sprite.center_y, sprite.center_x]
 
         # Look in front
         ahead2 = [self.ahead[0] * 0.5, self.ahead[0] * 0.5]
-        ahead_dist = self.euclidian_distance(self.ahead, sprite_pos)
-        ahead2_dist = self.euclidian_distance(ahead2, sprite_pos)
+        ahead_dist = self.toroidal_distance(self.ahead, sprite_pos)
+        ahead2_dist = self.toroidal_distance(ahead2, sprite_pos)
 
         # Collision with player_sprite (width might not be the best)
-        if ahead_dist < sprite.collision_radius or ahead2_dist < sprite.collision_radius:
+        if ahead_dist < self.view_radius or ahead2_dist < self.view_radius:
             # Calculate the avoidance force
             avoid_force = [self.ahead[0] - sprite.center_y,
                            self.ahead[1] - sprite.center_x]
@@ -118,7 +117,7 @@ class Boid(arcade.Sprite):
     def normalise(self, pos, magnitude: float)->list:
         if magnitude > 0:
             return [pos[0]/magnitude, pos[1]/magnitude]
-        return self.vel
+        return pos
 
 
 class MyGame(arcade.Window):
@@ -172,7 +171,7 @@ class MyGame(arcade.Window):
             avoid_total = [0, 0]
             attraction_total = [0, 0]
             alignement_total = [0, 0]
-            boid.view_radius = 1
+            print(boid.vel)
 
             for boid2 in self.boid_list:
                 if boid2 is not boid:
