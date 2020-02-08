@@ -1,24 +1,30 @@
 import random
 import arcade
 import math
+import numpy
 
 # --- Constants ---
 SPRITE_SCALING_PLAYER = 0.5
 SPRITE_SCALING_BOID = 0.2
 
-BOID_COUNT = 20
-MAX_SPEED = 40
-
+BOID_COUNT = 25
+MAX_SPEED = 5
 MAX_VIEW = 10
-MAX_AVOID_FORCE = 10
 
-ATTRACTION_RADIUS = 60
+AVOID_RADIUS = 30
+AVOID_FORCE = 1
+
+ATTRACTION_RADIUS = 50
 ATTRACTION_FORCE = 10
-ALIGNEMENT_RADIUS = 60
+
+ALIGNEMENT_RADIUS = 200
+ALIGNEMENT_FORCE = 10
 
 SCREEN_WIDTH = 600
 SCREEN_HEIGHT = 400
 SCREEN_TITLE = "Boids"
+
+BOID = True
 
 
 class Boid(arcade.Sprite):
@@ -33,10 +39,8 @@ class Boid(arcade.Sprite):
         super().__init__(image_path, scaling)
         self.pos = pos
         self.vel = vel
-        self.acc = [1, 1]
+        self.acc = [0, 0]
         self.ahead = [0, 0]
-        # Not used yet
-        self.view_radius = 5
 
     def update(self):
 
@@ -56,25 +60,26 @@ class Boid(arcade.Sprite):
         self.center_x = self.pos[1]
         self.center_y = self.pos[0]
 
-        self.ahead = [(self.pos[0] + self.vel[0] * MAX_VIEW) % SCREEN_HEIGHT,
-                      (self.pos[1] + self.vel[1] * MAX_VIEW) % SCREEN_WIDTH]
+        self.ahead = [(self.pos[0] + self.vel[0]) % SCREEN_HEIGHT,
+                      (self.pos[1] + self.vel[1]) % SCREEN_WIDTH]
 
-        magnitude = self.magnitude(self.pos, self.vel)
-        if magnitude > MAX_SPEED or magnitude < 1:
-            self.vel = self.normalise(self.vel, magnitude)
+        norm = numpy.linalg.norm(self.vel)
+        if norm != 0:
+            self.vel = self.vel / norm
             self.vel[0] *= MAX_SPEED
             self.vel[1] *= MAX_SPEED
 
-    def avoidance(self, sprite: arcade.Sprite):
+
+    def avoidance(self, sprite)->list:
         sprite_pos = [sprite.center_y, sprite.center_x]
 
         # Look in front
-        ahead2 = [self.ahead[0] * 0.5, self.ahead[0] * 0.5]
+        ahead2 = [self.ahead[0] * 1.5 % SCREEN_HEIGHT, self.ahead[1] * 1.5 % SCREEN_WIDTH]
         ahead_dist = self.toroidal_distance(self.ahead, sprite_pos)
         ahead2_dist = self.toroidal_distance(ahead2, sprite_pos)
 
         # Collision with player_sprite (width might not be the best)
-        if ahead_dist < self.view_radius or ahead2_dist < self.view_radius:
+        if ahead_dist < AVOID_RADIUS or ahead2_dist < AVOID_RADIUS:
             # Calculate the avoidance force
             avoid_force = [self.ahead[0] - sprite.center_y,
                            self.ahead[1] - sprite.center_x]
@@ -82,18 +87,17 @@ class Boid(arcade.Sprite):
 
         return [0, 0]
 
-    def alignement(self, sprite: arcade.Sprite)->list:
+    def alignement(self, sprite)->list:
 
-        ahead_dist = self.toroidal_distance(self.pos, [sprite.center_y, sprite.center_x])
-        if ahead_dist <= ATTRACTION_RADIUS:
-            self.view_radius += 1
-            return sprite.vel
+        dist = self.toroidal_distance(self.pos, [sprite.center_y, sprite.center_x])
+        if dist <= ALIGNEMENT_RADIUS:
+            return [sprite.ahead[0] - self.pos[0], sprite.ahead[1] - self.pos[1]]
 
         return [0, 0]
 
-    def attraction(self, sprite: arcade.Sprite)->list:
+    def attraction(self, sprite)->list:
         if self.toroidal_distance(self.pos, sprite.pos) <= ATTRACTION_RADIUS:
-            return sprite.pos
+            return [sprite.pos[0] - self.pos[0], sprite.pos[1] - self.pos[1]]
         return [0, 0]
 
     def euclidian_distance(self, pos1: list, pos2: list)->float:
@@ -112,7 +116,7 @@ class Boid(arcade.Sprite):
         return math.sqrt(diff_x**2 + diff_y**2)
 
     def magnitude(self, pos1: list, pos2: list)->float:
-        return math.sqrt(abs(pos1[1]*pos1[0]+pos2[1]*pos2[0]))
+        return numpy.sqrt(pos1[1]*pos1[0] - pos2[1]*pos2[0])
 
     def normalise(self, pos, magnitude: float)->list:
         if magnitude > 0:
@@ -147,7 +151,7 @@ class MyGame(arcade.Window):
         for i in range(BOID_COUNT):
 
             random_pos = [random.randrange(SCREEN_WIDTH), random.randrange(SCREEN_HEIGHT)]
-            random_vel = [random.randrange(-10, 10), random.randrange(-10, 10)]
+            random_vel = [random.randrange(-30, 30), random.randrange(-30, 30)]
             boid = Boid("images/char2.png", SPRITE_SCALING_BOID, random_pos,
                         random_vel)
             self.boid_list.append(boid)
@@ -159,8 +163,6 @@ class MyGame(arcade.Window):
 
     def on_mouse_motion(self, x, y, dx, dy):
         """ Handle Mouse Motion """
-
-        # Move the center of the player sprite to match the mouse x, y
         pass
 
     def on_update(self, delta_time):
@@ -171,46 +173,52 @@ class MyGame(arcade.Window):
             avoid_total = [0, 0]
             attraction_total = [0, 0]
             alignement_total = [0, 0]
-            print(boid.vel)
 
-            for boid2 in self.boid_list:
-                if boid2 is not boid:
+            if BOID:
+                for boid2 in self.boid_list:
+                    if boid2 is not boid:
 
-                    # Compute 1 avoid
-                    avoid_force = boid.avoidance(boid2)
-                    avoid_total[0] += avoid_force[0]
-                    avoid_total[1] += avoid_force[1]
+                        # Compute 1 avoid
+                        avoid_force = boid.avoidance(boid2)
+                        avoid_total[0] += avoid_force[0]
+                        avoid_total[1] += avoid_force[1]
 
-                    # Compute 1 attraction
-                    attraction_force = boid.attraction(boid2)
-                    attraction_total[0] += attraction_force[0]
-                    attraction_total[1] += attraction_force[1]
+                        # Compute 1 attraction
+                        attraction_force = boid.attraction(boid2)
+                        attraction_total[0] += attraction_force[0]
+                        attraction_total[1] += attraction_force[1]
 
-                    # Compute 1 alignment
-                    alignement_force = boid.attraction(boid2)
-                    alignement_total[0] += alignement_force[0]
-                    alignement_total[1] += alignement_force[1]
+                        # Compute 1 alignment
+                        alignement_force = boid.attraction(boid2)
+                        alignement_total[0] += alignement_force[0]
+                        alignement_total[1] += alignement_force[1]
 
-            alignement_total[0] = attraction_total[0] / boid.view_radius * MAX_SPEED
-            alignement_total[1] = attraction_total[1] / boid.view_radius * MAX_SPEED
 
-            # Normalising
-            magnitude = boid.magnitude(boid.vel, avoid_total)
-            avoid = boid.normalise(avoid_total, magnitude)
 
-            magnitude = boid.magnitude(boid.vel, alignement_total)
-            alignement = boid.normalise(alignement_total, magnitude)
+                # Normalising
+                attraction = [0, 0]
+                alignement = [0, 0]
+                avoid = [0, 0]
+                norm = numpy.linalg.norm(avoid_total)
+                if norm != 0:
+                    avoid = avoid_total / norm
 
-            magnitude = boid.magnitude(boid.vel, attraction_total)
-            attraction = boid.normalise(attraction_total, magnitude)
+                norm = numpy.linalg.norm(attraction)
+                if norm != 0:
+                    attraction = attraction/ norm
 
-            # Adding Forces
-            boid.acc[0] = attraction[0] * ATTRACTION_FORCE \
-                          + avoid[0] * MAX_AVOID_FORCE \
-                          + alignement[0]
-            boid.acc[1] = attraction[1] * ATTRACTION_FORCE \
-                          + avoid[1] * MAX_AVOID_FORCE \
-                          + alignement[0]
+                norm = numpy.linalg.norm(alignement)
+                if norm != 0:
+                    alignement = alignement / norm
+
+
+                # Adding Forces
+                boid.acc[0] = attraction[0] * ATTRACTION_FORCE \
+                              + avoid[0] * AVOID_FORCE \
+                              + alignement[0] * ALIGNEMENT_FORCE
+                boid.acc[1] = attraction[1] * ATTRACTION_FORCE \
+                              + avoid[1] * AVOID_FORCE \
+                              + alignement[0] * ALIGNEMENT_FORCE
             boid.update()
 
 
