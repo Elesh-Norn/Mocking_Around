@@ -7,7 +7,7 @@ import numpy
 SPRITE_SCALING_PLAYER = 0.5
 SPRITE_SCALING_BOID = 0.2
 
-BOID_COUNT = 25
+BOID_COUNT = 20
 MAX_SPEED = 5
 MAX_VIEW = 10
 
@@ -39,8 +39,23 @@ class Boid(arcade.Sprite):
         super().__init__(image_path, scaling)
         self.pos = pos
         self.vel = vel
+        self.angle += -90
+        self.previous_vel = self.vel
         self.acc = [0, 0]
         self.ahead = [0, 0]
+        self.frame = 0
+
+
+    def calculate_sprite_roation_angle(self):
+        v1 = self.vel / numpy.linalg.norm(self.vel)
+        v2 = self.previous_vel / numpy.linalg.norm(self.previous_vel)
+        angle = numpy.arccos(numpy.clip(numpy.dot(v1, v2), -1.0, 1.0))*57.296
+        direction = self.vel[0]*self.previous_vel[1] - self.vel[1]*self.previous_vel[0]
+        if direction > 0:
+            return angle
+        elif direction < 0:
+            return -angle
+        return 0
 
     def update(self):
 
@@ -68,6 +83,12 @@ class Boid(arcade.Sprite):
             self.vel = self.vel / norm
             self.vel[0] *= MAX_SPEED
             self.vel[1] *= MAX_SPEED
+
+        self.frame += 1
+        if self.frame == 10:
+            self.angle -= self.calculate_sprite_roation_angle()
+            self.previous_vel = self.vel
+            self.frame = 0
 
 
     def avoidance(self, sprite)->list:
